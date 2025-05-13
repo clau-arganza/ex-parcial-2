@@ -1,0 +1,165 @@
+import heapq
+import csv
+import os
+
+TAREAS_FILE = 'tareas.csv'
+COMPLETADAS_FILE = 'completadas.csv'
+
+class Tarea:
+    def __init__(self, nombre, prioridad, dependencias=None):
+        self.nombre = nombre
+        self.prioridad = int(prioridad)
+        self.dependencias = dependencias if dependencias else []
+
+    def __lt__(self, other):
+        return self.prioridad < other.prioridad
+
+    def __repr__(self):
+        return f"{self.nombre} (Prioridad: {self.prioridad}, Depende de: {self.dependencias})"
+
+    def es_ejecutable(self, completadas):
+        return all(dep in completadas for dep in self.dependencias)
+
+def cargar_tareas():
+    tareas = []
+    if os.path.exists(TAREAS_FILE):
+        with open(TAREAS_FILE, newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                nombre = row['nombre']
+                prioridad = int(row['prioridad'])
+                dependencias = row['dependencias'].split(';') if row['dependencias'] else []
+                tareas.append(Tarea(nombre, prioridad, dependencias))
+    return tareas
+
+def cargar_completadas():
+    if os.path.exists(COMPLETADAS_FILE):
+        with open(COMPLETADAS_FILE, newline='', encoding='utf-8') as f:
+            return {row['nombre'] for row in csv.DictReader(f)}
+    return set()
+
+def guardar_tareas(tareas):
+    with open(TAREAS_FILE, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=['nombre', 'prioridad', 'dependencias'])
+        writer.writeheader()
+        for tarea in tareas:
+            writer.writerow({
+                'nombre': tarea.nombre,
+                'prioridad': tarea.prioridad,
+                'dependencias': ';'.join(tarea.dependencias)
+            })
+
+def guardar_completada(nombre):
+    existe = os.path.exists(COMPLETADAS_FILE)
+    with open(COMPLETADAS_FILE, 'a', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=['nombre'])
+        if not existe:
+            writer.writeheader()
+        writer.writerow({'nombre': nombre})
+
+def mostrar_menu():
+    print("\n=== GESTOR DE TAREAS ===")
+    print("1. Añadir nueva tarea")
+    print("2. Mostrar tareas pendientes")
+    print("3. Marcar tarea como completada")
+    print("4. Ver siguiente tarea de mayor prioridad")
+    print("5. Salir")
+
+def input_prioridad():
+    while True:
+        valor = input("Prioridad (número entero): ").strip()
+        if valor.isdigit():
+            return int(valor)
+        else:
+            print("Prioridad inválida. Introduce un número entero.")
+
+def input_dependencias(todas_tareas, completadas):
+    existentes = {t.nombre for t in todas_tareas}.union(completadas)
+    deps = input("Dependencias (separadas por coma, dejar vacío si ninguna): ").strip()
+    if not deps:
+        return []
+    lista = [d.strip() for d in deps.split(',')]
+    for d in lista:
+        if d not in existentes:
+            print(f"La tarea '{d}' no existe.")
+            return input_dependencias(todas_tareas, completadas)
+    return lista
+
+def añadir_tarea(tareas, completadas):
+    nombre = input("Nombre de la tarea: ").strip()
+    if not nombre:
+        print("El nombre no puede estar vacío.")
+        return
+    if any(t.nombre == nombre for t in tareas) or nombre in completadas:
+        print("Ya existe una tarea con ese nombre.")
+        return
+    prioridad = input_prioridad()
+    dependencias = input_dependencias(tareas, completadas)
+    tarea = Tarea(nombre, prioridad, dependencias)
+    tareas.append(tarea)
+    heapq.heapify(tareas)
+    guardar_tareas(tareas)
+    print("Tarea añadida.")
+
+def mostrar_tareas(tareas, completadas):
+    if not tareas:
+        print("No hay tareas pendientes.")
+        return
+    print("\nTareas pendientes:")
+    for tarea in sorted(tareas):
+        estado = "Ejecutable" if tarea.es_ejecutable(completadas) else " No ejecutable"
+        print(f"- {tarea} → {estado}")
+
+def completar_tarea(tareas, completadas):
+    nombre = input("Nombre de la tarea a marcar como completada: ").strip()
+    if nombre in completadas:
+        print("Esa tarea ya estaba completada.")
+        return
+    for t in tareas:
+        if nombre in t.dependencias:
+            print(f"No se puede eliminar. Otras tareas dependen de '{nombre}'.")
+            return
+    for i, tarea in enumerate(tareas):
+        if tarea.nombre == nombre:
+            del tareas[i]
+            heapq.heapify(tareas)
+            guardar_tareas(tareas)
+            guardar_completada(nombre)
+            print("Tarea completada y eliminada.")
+            return
+    print("Tarea no encontrada.")
+
+def siguiente_tarea(tareas, completadas):
+    if not tareas:
+        print("No hay tareas pendientes.")
+        return
+    for tarea in sorted(tareas):
+        if tarea.es_ejecutable(completadas):
+            print("Siguiente tarea de mayor prioridad:", tarea)
+            return
+    print("No hay tareas disponibles sin dependencias pendientes.")
+
+def main():
+    tareas = cargar_tareas()
+    completadas = cargar_completadas()
+    heapq.heapify(tareas)
+    while True:
+        mostrar_menu()
+        opcion = input("Selecciona una opción: ").strip()
+        if opcion == '1':
+            añadir_tarea(tareas, completadas)
+        elif opcion == '2':
+            mostrar_tareas(tareas, completadas)
+        elif opcion == '3':
+            completar_tarea(tareas, completadas)
+            completadas = cargar_completadas()  # recargar
+        elif opcion == '4':
+            siguiente_tarea(tareas, completadas)
+        elif opcion == '5':
+            print("Saliendo...")
+            break
+        else:
+            print("Opción inválida.")
+
+if __name__ == "__main__":
+    main()
